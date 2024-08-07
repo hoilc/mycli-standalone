@@ -1,0 +1,111 @@
+name: Build
+
+on:
+  schedule:
+  - cron: '0 8 * * Sun'
+  workflow_dispatch:
+
+jobs:
+  check_upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      needupdated: ${{ steps.check.outputs.needupdated }}
+      latesttag: ${{ steps.check.outputs.latesttag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag
+        id: check
+        run: |
+          tag1=$(curl -s https://api.github.com/repos/dbcli/mycli/tags | jq -r '.[0].name')
+          tag2=$(curl -s https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest | jq -r '.tag_name')
+          echo "Latest release on dbcli/mycli: $tag1"
+          echo "Latest release on this repository: $tag2"
+          needupdated=true
+          if [[ "$tag1" == "$tag2" ]]; then
+            needupdated=false
+          fi
+          echo "Need Updated: $needupdated"
+          echo "needupdated=$needupdated" >> "$GITHUB_OUTPUT"
+          echo "latesttag=$tag1" >> "$GITHUB_OUTPUT"
+  build:
+    runs-on: ubuntu-latest
+    needs: check_upstream
+    if: needs.check_upstream.outputs.needupdated == 'true'
+    container:
+      image: "centos:7"
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+        with:
+          repository: dbcli/mycli
+          ref: ${{ needs.check_upstream.outputs.latesttag }}
+          path: mycli
+      - name: Cache pyoxidizer assets
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip/
+            ~/.cache/pyoxidizer/
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: pyoxidizer
+      - name: Build
+        run: |
+          rm -f /etc/yum.repos.d/*.repo
+          cat << EOF >> /etc/yum.repos.d/centos.repo
+          [base]
+          name=CentOS-$releasever - Base
+          baseurl=https://vault.centos.org/7.9.2009/os/x86_64/
+          gpgcheck=0
+          [extras]
+          name=CentOS-$releasever - Extras
+          baseurl=https://vault.centos.org/7.9.2009/extras/x86_64/
+          gpgcheck=0
+          [sclorh]
+          name=CentOS-$releasever - Sclo Rh
+          baseurl=https://vault.centos.org/7.9.2009/sclo/x86_64/rh/
+          gpgcheck=0
+          EOF
+          yum install -y unzip devtoolset-9-toolchain rh-python38 rh-python38-python-devel rh-python38-python-pip
+          source /opt/rh/devtoolset-9/enable
+          source /opt/rh/rh-python38/enable
+          gcc --version
+          python --version
+          pip install pyoxidizer
+          cp pyoxidizer.bzl mycli/
+          cd mycli
+          pyoxidizer build --release install
+          cd build/x86_64-unknown-linux-gnu/release/install
+          ls -lhtr
+          tar zcvf ${GITHUB_WORKSPACE}/mycli_linux_amd64.tar.gz mycli
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: mycli_linux_amd64
+          path: mycli_linux_amd64.tar.gz
+
+  create_release:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: mycli_linux_amd64
+      - name: Check latest tag
+        run: |
+          latest_tag=$(curl -s https://api.github.com/repos/dbcli/mycli/tags | jq -r '.[0].name')
+          echo "Latest tag is ${latest_tag}"
+          echo "latest_tag=${latest_tag}" >> $GITHUB_ENV
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.latest_tag }}
+          body: "Built on the original repository. ${{ env.latest_tag }}"
+          artifacts: "mycli_linux_amd64.tar.gz"
