@@ -39,8 +39,29 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
     steps:
-      - name: install nodejs20glibc2.17
+      - name: Prepare
         run: |
+          rm -f /etc/yum.repos.d/*.repo
+          cat << EOF >> /etc/yum.repos.d/centos.repo
+          [base]
+          name=CentOS-$releasever - Base
+          baseurl=https://vault.centos.org/7.9.2009/os/x86_64/
+          gpgcheck=0
+          [extras]
+          name=CentOS-$releasever - Extras
+          baseurl=https://vault.centos.org/7.9.2009/extras/x86_64/
+          gpgcheck=0
+          [sclorh]
+          name=CentOS-$releasever - Sclo Rh
+          baseurl=https://vault.centos.org/7.9.2009/sclo/x86_64/rh/
+          gpgcheck=0
+          [wandisco]
+          name=CentOS-$releasever - wandisco git
+          baseurl=https://opensource.wandisco.com/centos/7/git/x86_64/
+          gpgcheck=0
+          EOF
+          yum install -y git unzip devtoolset-9-toolchain rh-python38 rh-python38-python-devel rh-python38-python-pip
+          # install nodejs20glibc2.17
           curl -LO https://unofficial-builds.nodejs.org/download/release/v20.9.0/node-v20.9.0-linux-x64-glibc-217.tar.xz
           tar -xf node-v20.9.0-linux-x64-glibc-217.tar.xz --strip-components 1 -C /node20217
           ldd /__e/node20/bin/node
@@ -63,22 +84,6 @@ jobs:
           key: pyoxidizer
       - name: Build
         run: |
-          rm -f /etc/yum.repos.d/*.repo
-          cat << EOF >> /etc/yum.repos.d/centos.repo
-          [base]
-          name=CentOS-$releasever - Base
-          baseurl=https://vault.centos.org/7.9.2009/os/x86_64/
-          gpgcheck=0
-          [extras]
-          name=CentOS-$releasever - Extras
-          baseurl=https://vault.centos.org/7.9.2009/extras/x86_64/
-          gpgcheck=0
-          [sclorh]
-          name=CentOS-$releasever - Sclo Rh
-          baseurl=https://vault.centos.org/7.9.2009/sclo/x86_64/rh/
-          gpgcheck=0
-          EOF
-          yum install -y unzip devtoolset-9-toolchain rh-python38 rh-python38-python-devel rh-python38-python-pip
           source /opt/rh/devtoolset-9/enable
           source /opt/rh/rh-python38/enable
           gcc --version
